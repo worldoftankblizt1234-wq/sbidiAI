@@ -1,15 +1,23 @@
 import streamlit as st
-from transformers import pipeline
-import random
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch, random
 
 st.set_page_config(page_title="Shop Mây")
-st.title("🎀 Shop Mây")
+st.title("🎀 Shop Mây - Không cần API")
 
 @st.cache_resource
 def load_bot():
-    return pipeline("text-generation", model="HuggingFaceTB/SmolLM2-135M-Instruct", device_map="cpu")
+    name = "Qwen/Qwen2.5-0.5B-Instruct"
+    tok = AutoTokenizer.from_pretrained(name)
+    model = AutoModelForCausalLM.from_pretrained(
+        name,
+        device_map="cpu",
+        load_in_4bit=True, # nén xuống 400MB cho vừa 1GB
+        low_cpu_mem_usage=True
+    )
+    return tok, model
 
-bot = load_bot()
+tok, model = load_bot()
 
 with st.sidebar:
     st.header("🎡 Vòng quay")
@@ -26,11 +34,14 @@ if q := st.chat_input("Hỏi gì đi..."):
     st.session_state.messages.append({"role": "user", "content": q})
     st.chat_message("user").write(q)
 
-    # Prompt fix để nó không trả lời toán khi chào hi
-    prompt = f"<|im_start|>system\nBạn là Mây, nhân viên shop quần áo, chỉ tư vấn shop, không làm toán.<|im_end|>\n<|im_start|>user\n{q}<|im_end|>\n<|im_start|>assistant\n"
+    messages = [
+        {"role": "system", "content": "Bạn là Mây, nhân viên shop quần áo, nói tiếng Việt ngắn gọn, vui vẻ."},
+        {"role": "user", "content": q}
+    ]
+    input_ids = tok.apply_chat_template(messages, return_tensors="pt")
 
-    result = bot(prompt, max_new_tokens=100, do_sample=True, temperature=0.7, truncation=True)
-    reply = result[0]['generated_text'].replace(prompt, "").strip()
+    out = model.generate(input_ids, max_new_tokens=120, temperature=0.7, do_sample=True)
+    reply = tok.decode(out[0][input_ids.shape[1]:], skip_special_tokens=True)
 
     st.session_state.messages.append({"role": "assistant", "content": reply})
     st.chat_message("assistant").write(reply)
